@@ -1,0 +1,79 @@
+---
+title: "SAR precio alquiler"
+author: "Juan Carraha"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r}
+library(MASS)
+library(spdep)
+library(spatialreg)
+```
+
+```{r}
+url_x_train <- "https://raw.githubusercontent.com/brunopless/TFM-Equipo-4-BDDS/main/x_train_E2.csv"
+url_x_test <- "https://raw.githubusercontent.com/brunopless/TFM-Equipo-4-BDDS/main/x_test_E2.csv"
+url_y_train <- "https://raw.githubusercontent.com/brunopless/TFM-Equipo-4-BDDS/main/y_train_E2.csv"
+url_y_test <- "https://raw.githubusercontent.com/brunopless/TFM-Equipo-4-BDDS/main/y_test_E2.csv"
+url_log_y_train <- "https://raw.githubusercontent.com/brunopless/TFM-Equipo-4-BDDS/main/log_y_train_E2.csv"
+url_log_y_test <- "https://raw.githubusercontent.com/brunopless/TFM-Equipo-4-BDDS/main/log_y_test_E2.csv"
+
+x_train_E2 <- read.csv(url_x_train)
+x_test_E2 <- read.csv(url_x_test)
+y_train_E2 <- read.csv(url_y_train)
+y_test_E2 <- read.csv(url_y_test)
+log_y_train_E2 <- read.csv(url_log_y_train)
+log_y_test_E2 <- read.csv(url_log_y_test)
+```
+
+```{r}
+# Asegurarse de que log_y_train_E2 y log_y_test_E2 sean vectores y renombrar si es necesario
+log_y_train_E2 <- as.vector(log_y_train_E2$price)
+log_y_test_E2 <- as.vector(log_y_test_E2$price)
+
+# Verificar las longitudes después de la conversión
+cat("Longitud de log_y_train_E2:", length(log_y_train_E2), "\n")
+cat("Longitud de log_y_test_E2:", length(log_y_test_E2), "\n")
+```
+
+```{r}
+# Entrenar el modelo SAR con menos variables para optimizar el tiempo de ejecución
+selected_vars <- c("floor", "size", "rooms", "bathrooms", "hasLift", "distancia_minima_banco",
+                  "distancia_minima_starbucks", "distancia_minima_atractivos",
+                  "distancia_minima_buenasmigas", "distancia_minima_clubesnocturnos",
+                  "distancia_minima_mcdonalds", "distancia_minima_metro",
+                  "distancia_minima_parking", "distancia_minima_parkingbici",
+                  "distancia_minima_parques", "distancia_minima_playa",
+                  "distancia_minima_santagloria", "distancia_minima_vivari",
+                  "num_airbnbs_500", "media_precios_airbnbs_500")
+selected_vars2 <- c("floor", "size", "rooms", "bathrooms", "hasLift", "distancia_minima_banco",
+                  "distancia_minima_starbucks", "distancia_minima_atractivos",
+                  "distancia_minima_buenasmigas", "distancia_minima_clubesnocturnos",
+                  "distancia_minima_mcdonalds", "distancia_minima_metro",
+                  "distancia_minima_parking", "distancia_minima_parkingbici",
+                  "distancia_minima_parques", "distancia_minima_playa",
+                  "distancia_minima_santagloria", "distancia_minima_vivari",
+                  "num_airbnbs_500", "media_precios_airbnbs_500", "longitude", "latitude")
+formula <- as.formula(paste("log_y_train_E2 ~", paste(selected_vars, collapse=" + ")))
+
+# Combinar x_train_E2 y log_y_train_E2 en un solo data.frame
+train_data <- cbind(x_train_E2[, selected_vars2], log_y_train_E2)
+```
+
+```{r}
+nb <- knn2nb(knearneigh(cbind(train_data$longitude, train_data$latitude), k=10))
+```
+
+```{r}
+sar_model <- lagsarlm(formula = formula, data=train_data, listw= nb2listw(nb, style = "W"))
+```
+
+```{r}
+summary(sar_model)
+```

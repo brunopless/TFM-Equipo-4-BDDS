@@ -1,0 +1,289 @@
+---
+title: "GLM y seleección de variables"
+author: "G4"
+date: "2024-07-15"
+output:
+  html_document: default
+  word_document: default
+editor_options:
+  markdown:
+    wrap: 72
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+# GLM Entrenamiento
+
+
+#LIBRERÍAS
+
+```{r}
+#install.packages("factoextra")
+#installed.packages()["spdep", ]
+#install.packages("Metrics")
+#install.packages("MASS")
+library(tidyverse)
+library(factoextra)
+library(ggplot2)
+library(spdep)
+library(MASS)
+```
+
+#DATOS
+
+```{r}
+
+# Cargar el paquete readxl si no está cargado
+library(readxl)
+
+# Especificar la ruta del archivo
+x_train_E2_ruta <- "C:/Users/aleja/OneDrive/Escritorio/Máster Big Data & Data Science/TFM/Entrega/x_train_E2.csv"
+
+# Leer el archivo Excel
+x_train_E2 <- read_csv(x_train_E2_ruta)
+
+# Verificar que los datos se han cargado correctamente
+head(x_train_E2)
+
+
+summary(x_train_E2)
+```
+
+
+```{r}
+# Especificar la ruta del archivo
+y_train_E2_ruta <- "C:/Users/aleja/OneDrive/Escritorio/Máster Big Data & Data Science/TFM/Entrega/y_train_E2.csv"
+
+# Leer el archivo Excel
+y_train_E2 <- read_csv(y_train_E2_ruta)
+
+# Verificar que los datos se han cargado correctamente
+head(y_train_E2)
+
+
+summary(y_train_E2)
+
+
+```
+
+```{r}
+# Variables que deseas incluir
+vars_to_keep <- c("floor", "size", "rooms", "bathrooms", 
+                  "latitude", "longitude", "hasLift", "distancia_minima_banco", 
+                  "distancia_minima_starbucks", "distancia_minima_atractivos", 
+                  "distancia_minima_buenasmigas", "distancia_minima_clubesnocturnos", 
+                  "distancia_minima_mcdonalds", "distancia_minima_metro", 
+                  "distancia_minima_parking", "distancia_minima_parkingbici", 
+                  "distancia_minima_parques", "distancia_minima_playa", 
+                  "distancia_minima_santagloria", "distancia_minima_vivari", 
+                  "num_airbnbs_500", "media_precios_airbnbs_500")
+
+# Crear el nuevo dataframe con las variables seleccionadas
+x_train_E2 <- x_train_E2[vars_to_keep]
+
+```
+
+```{r}
+# Combinar x_train_E2 y y_train_E2
+train_data <- bind_cols(x_train_E2, y_train_E2)
+
+# Verificar que los datos se han combinado correctamente
+head(train_data)
+```
+
+
+
+```{r}
+# Definimos la fórmula del modelo
+formula <- log(price) ~ floor + size + rooms + bathrooms + latitude + longitude + hasLift +
+            distancia_minima_banco + distancia_minima_starbucks + distancia_minima_atractivos +
+            distancia_minima_buenasmigas + distancia_minima_clubesnocturnos + 
+            distancia_minima_mcdonalds + distancia_minima_metro + distancia_minima_parking + 
+            distancia_minima_parkingbici + distancia_minima_parques + distancia_minima_playa + 
+            distancia_minima_santagloria + distancia_minima_vivari + num_airbnbs_500 + 
+            media_precios_airbnbs_500
+
+# Ajustar el modelo de regresión lineal
+#modelo <- glm(formula, data = train_data)
+modelo <- glm(formula, data = train_data, family = gaussian)
+# Resumen del modelo
+summary(modelo)
+```
+
+
+
+
+
+```{r}
+# Realizar las predicciones en el conjunto de prueba
+predicciones <- predict(modelo, newdata = x_train_E2)
+
+# Calcular la suma de los errores al cuadrado (SSE)
+SSE <- sum((y_train_E2$price - predicciones)^2)
+
+# Calcular el total de sumas de cuadrados (SST)
+SST <- sum((y_train_E2$price - mean(y_train_E2$price))^2)
+
+# Calcular el R-squared
+R_squared <- 1 - (SSE / SST)
+
+# Calcular el AIC
+AIC_valor <- AIC(modelo)
+
+# Mostrar SSE, R-squared y AIC
+cat("Suma de los errores al cuadrado (SSE):", SSE, "\n")
+cat("R-squared:", R_squared, "\n")
+cat("AIC:", AIC_valor, "\n")
+```
+
+
+
+# GLM test
+```{r}
+# Especificar la ruta de los archivos del conjunto de prueba
+x_test_E2_ruta <- "C:/Users/aleja/OneDrive/Escritorio/Máster Big Data & Data Science/TFM/Entrega/x_test_E2.csv"
+y_test_E2_ruta <- "C:/Users/aleja/OneDrive/Escritorio/Máster Big Data & Data Science/TFM/Entrega/y_test_E2.csv"
+
+# Leer los archivos CSV del conjunto de prueba
+x_test_E2 <- read_csv(x_test_E2_ruta)
+y_test_E2 <- read_csv(y_test_E2_ruta)
+
+# Verificar que los datos se han cargado correctamente
+head(x_test_E2)
+summary(x_test_E2)
+head(y_test_E2)
+summary(y_test_E2)
+
+```
+
+```{r}
+# Crear el nuevo dataframe con las variables seleccionadas
+x_test_E2 <- x_test_E2[vars_to_keep]
+```
+
+```{r}
+# Realizar las predicciones en el conjunto de prueba
+predicciones <- predict(modelo, newdata = x_test_E2)
+```
+
+
+
+```{r}
+# Calcular el RMSE
+rmse <- sqrt(mean((predicciones - y_test_E2$price)^2))
+
+# Calcular el MAE
+mae <- mean(abs(predicciones - y_test_E2$price))
+
+# Mostrar las métricas de evaluación
+cat("RMSE:", rmse, "\n")
+cat("MAE:", mae, "\n")
+```
+
+```{r}
+
+# Cargar los paquetes necesarios
+library(Metrics)
+
+# Realizar las predicciones en el conjunto de prueba
+predicciones <- predict(modelo, newdata = x_test_E2)
+
+# Calcular el R-squared para el conjunto de prueba
+SSE <- sum((y_test_E2$price - predicciones)^2)
+SST <- sum((y_test_E2$price - mean(y_test_E2$price))^2)
+R_squared <- 1 - (SSE / SST)
+
+# Calcular el R-squared ajustado para el conjunto de prueba
+n <- nrow(x_test_E2)  # número de observaciones en el conjunto de prueba
+p <- length(modelo$coefficients) - 1  # número de predictores en el modelo
+R_squared_ajustado <- 1 - ((1 - R_squared) * (n - 1) / (n - p - 1))
+
+# Calcular el AIC
+AIC_modelo <- AIC(modelo)
+
+# Mostrar los resultados
+cat("Suma de los errores al cuadrado (SSE):", SSE, "\n")
+cat("R-squared:", R_squared, "\n")
+cat("R-squared ajustado:", R_squared_ajustado, "\n")
+cat("AIC:", AIC_modelo, "\n")
+```
+```{r}
+# Realizar el stepwise
+modelo_stepwise <- stepAIC(modelo, direction = "both")
+
+# Mostrar el resumen del modelo stepwise
+summary(modelo_stepwise)
+```
+
+
+```{r}
+# Realizar las predicciones en el conjunto de prueba usando el modelo stepwise
+predicciones_stepwise <- predict(modelo_stepwise, newdata = x_test_E2)
+
+# Calcular la suma de los errores al cuadrado (SSE) para el modelo stepwise
+SSE_stepwise <- sum((y_test_E2$price - predicciones_stepwise)^2)
+
+# Calcular el total de sumas de cuadrados (SST) para el modelo stepwise
+SST_stepwise <- sum((y_test_E2$price - mean(y_test_E2$price))^2)
+
+# Calcular el R-squared para el modelo stepwise
+R_squared_stepwise <- 1 - (SSE_stepwise / SST_stepwise)
+
+# Calcular el AIC para el modelo stepwise
+AIC_stepwise <- AIC(modelo_stepwise)
+
+# Mostrar SSE, R-squared y AIC para el modelo stepwise
+cat("Suma de los errores al cuadrado (SSE) del modelo stepwise:", SSE_stepwise, "\n")
+cat("R-squared del modelo stepwise:", R_squared_stepwise, "\n")
+cat("AIC del modelo stepwise:", AIC_stepwise, "\n")
+```
+
+
+Como estamos calculando el log(price) es necesario convertir price a la escala original para calcular las metricas:
+```{r}
+# Calcular la suma de los errores al cuadrado (SSE) en la escala original
+SSE_stepwise <- sum((y_test_E2$price - predicciones_stepwise)^2)
+
+# Calcular el número de observaciones en el conjunto de prueba
+n <- length(y_test_E2$price)
+
+# Calcular el Mean Squared Error (MSE) en la escala original
+MSE_stepwise <- SSE_stepwise / n
+
+# Calcular el R-squared para el modelo stepwise
+SST <- sum((y_test_E2$price - mean(y_test_E2$price))^2)
+R_squared_stepwise <- 1 - (SSE_stepwise / SST)
+
+# Obtener el número de parámetros (predictores) en el modelo
+k <- length(coef(modelo_stepwise))
+
+# Calcular el AIC
+AIC_stepwise <- AIC(modelo_stepwise)
+
+# Mostrar los resultados
+cat("Suma de los errores al cuadrado (SSE) del modelo stepwise:", SSE_stepwise, "\n")
+cat("Mean Squared Error (MSE) del modelo stepwise:", MSE_stepwise, "\n")
+cat("R-squared del modelo stepwise:", R_squared_stepwise, "\n")
+cat("AIC del modelo stepwise:", AIC_stepwise, "\n")
+```
+
+
+```{r}
+
+
+```
+
+
+```{r}
+
+
+```
+
+
+```{r}
+
+
+```

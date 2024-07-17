@@ -1,0 +1,125 @@
+---
+title: "SAR precio alquiler"
+author: "Juan Carraha"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r}
+library(MASS)
+library(spdep)
+library(spatialreg)
+```
+
+```{r}
+url_x_train <- "https://raw.githubusercontent.com/brunopless/TFM-Equipo-4-BDDS/main/x_train_E2.csv"
+url_x_test <- "https://raw.githubusercontent.com/brunopless/TFM-Equipo-4-BDDS/main/x_test_E2.csv"
+url_y_train <- "https://raw.githubusercontent.com/brunopless/TFM-Equipo-4-BDDS/main/y_train_E2.csv"
+url_y_test <- "https://raw.githubusercontent.com/brunopless/TFM-Equipo-4-BDDS/main/y_test_E2.csv"
+url_log_y_train <- "https://raw.githubusercontent.com/brunopless/TFM-Equipo-4-BDDS/main/log_y_train_E2.csv"
+url_log_y_test <- "https://raw.githubusercontent.com/brunopless/TFM-Equipo-4-BDDS/main/log_y_test_E2.csv"
+
+x_train_E2 <- read.csv(url_x_train)
+x_test_E2 <- read.csv(url_x_test)
+y_train_E2 <- read.csv(url_y_train)
+y_test_E2 <- read.csv(url_y_test)
+log_y_train_E2 <- read.csv(url_log_y_train)
+log_y_test_E2 <- read.csv(url_log_y_test)
+```
+
+```{r}
+# Asegurarse de que log_y_train_E2 y log_y_test_E2 sean vectores y renombrar si es necesario
+log_y_train_E2 <- as.vector(log_y_train_E2$price)
+log_y_test_E2 <- as.vector(log_y_test_E2$price)
+
+# Verificar las longitudes después de la conversión
+cat("Longitud de log_y_train_E2:", length(log_y_train_E2), "\n")
+cat("Longitud de log_y_test_E2:", length(log_y_test_E2), "\n")
+```
+
+```{r}
+# Entrenar el modelo SAR con menos variables para optimizar el tiempo de ejecución
+selected_vars <- c("floor", "size", "rooms", "bathrooms", "hasLift", "num_bancos_500",
+                  "num_starbucks_500", "num_atractivos_500",
+                  "num_buenasmigas_500", "num_clubesnocturnos_500",
+                  "num_mcdonalds_500", "num_metro_500",
+                  "num_parking_500", "num_parkingbici_500",
+                  "num_parques_500", "num_santagloria_500", "num_vivari_500",
+                  "num_airbnbs_500", "status_newdevelopment", "status_renew", "newDevelopment_True")
+selected_vars2 <- c("floor", "size", "rooms", "bathrooms", "hasLift", "num_bancos_500",
+                  "num_starbucks_500", "num_atractivos_500",
+                  "num_buenasmigas_500", "num_clubesnocturnos_500",
+                  "num_mcdonalds_500", "num_metro_500",
+                  "num_parking_500", "num_parkingbici_500",
+                  "num_parques_500", "num_santagloria_500", "num_vivari_500",
+                  "num_airbnbs_500", "status_newdevelopment", "status_renew", 
+                  "newDevelopment_True", "longitude", "latitude")
+formula <- as.formula(paste("log_y_train_E2 ~", paste(selected_vars, collapse=" + ")))
+
+# Combinar x_train_E2 y log_y_train_E2 en un solo data.frame
+train_data <- cbind(x_train_E2[, selected_vars2], log_y_train_E2)
+```
+
+```{r}
+library(spdep)
+# Función para introducir una pequeña perturbación aleatoria
+perturbate <- function(x) {
+  x + runif(length(x), min = -1e-10, max = 1e-10)
+}
+
+# Introducir una pequeña perturbación aleatoria en las coordenadas
+set.seed(42)  # Para reproducibilidad
+train_data$longitude <- perturbate(train_data$longitude)
+train_data$latitude <- perturbate(train_data$latitude)
+
+```
+
+```{r}
+nb <- knn2nb(knearneigh(cbind(train_data$longitude, train_data$latitude), k=10))
+```
+
+```{r}
+sar_model <- lagsarlm(formula = formula, data=train_data, listw= nb2listw(nb, style = "W"))
+```
+
+```{r}
+summary(sar_model)
+```
+
+```{r}
+# Número de observaciones
+n <- nrow(train_data)
+
+# Número de parámetros estimados (incluyendo el intercepto y rho)
+k <- length(coef(sar_model)) + 1  # '+ 1' para rho
+
+# Varianza residual
+sigma_squared <- sar_model$s2
+
+# Calcular TSS
+TSS <- sum((train_data$log_y_train_E2 - mean(train_data$log_y_train_E2))^2)
+
+# Calcular RSS
+RSS <- sigma_squared * n
+
+# Calcular R^2
+R2 <- 1 - (RSS / TSS)
+
+# Calcular R^2 ajustado
+R2_adj <- 1 - ((1 - R2) * (n - 1) / (n - k - 1))
+
+R2_adj
+```
+
+```{r}
+library(pander)
+```
+
+```{r}
+pander(summary(sar_model))
+```

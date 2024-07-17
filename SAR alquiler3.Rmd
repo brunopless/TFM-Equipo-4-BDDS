@@ -1,0 +1,99 @@
+---
+title: "SAR precio alquiler"
+author: "Juan Carraha"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r}
+library(MASS)
+library(spdep)
+library(spatialreg)
+```
+
+```{r}
+url <- "https://github.com/brunopless/TFM-Equipo-4-BDDS/raw/main/renta.csv"
+datos <- read.table(url, header = TRUE, sep = ",")
+```
+
+```{r}
+# Crear una nueva columna con los logaritmos naturales
+datos$log_price <- log(datos$price)
+```
+
+```{r}
+# Entrenar el modelo SAR con menos variables para optimizar el tiempo de ejecución
+selected_vars <- c("floor", "size", "rooms", "bathrooms", "hasLift", "num_bancos_500",
+                  "num_starbucks_500", "num_atractivos_500",
+                  "num_buenasmigas_500", "num_clubesnocturnos_500",
+                  "num_mcdonalds_500", "num_metro_500",
+                  "num_parking_500", "num_parques_500", "num_santagloria_500",
+                  "num_vivari_500", "num_airbnbs_500", "status_newdevelopment",
+                  "status_renew", "propertyType_duplex", "propertyType_flat",
+                  "propertyType_penthouse", "propertyType_studio")
+selected_vars2 <- c("floor", "size", "rooms", "bathrooms", "hasLift", "num_bancos_500",
+                  "num_starbucks_500", "num_atractivos_500",
+                  "num_buenasmigas_500", "num_clubesnocturnos_500",
+                  "num_mcdonalds_500", "num_metro_500",
+                  "num_parking_500", "num_parkingbici_500",
+                  "num_parques_500", "num_santagloria_500", "num_vivari_500",
+                  "num_airbnbs_500", "status_newdevelopment", "status_renew", 
+                  "newDevelopment_True", "longitude", "latitude")
+formula <- as.formula(paste("log_price ~", paste(selected_vars, collapse=" + ")))
+```
+
+```{r}
+library(spdep)
+# Función para introducir una pequeña perturbación aleatoria
+perturbate <- function(x) {
+  x + runif(length(x), min = -1e-10, max = 1e-10)
+}
+
+# Introducir una pequeña perturbación aleatoria en las coordenadas
+set.seed(42)  # Para reproducibilidad
+datos$longitude <- perturbate(datos$longitude)
+datos$latitude <- perturbate(datos$latitude)
+
+```
+
+```{r}
+nb <- knn2nb(knearneigh(cbind(datos$longitude, datos$latitude), k=10))
+```
+
+```{r}
+sar_model <- lagsarlm(formula = formula, data=datos, listw= nb2listw(nb, style = "W"))
+```
+
+```{r}
+summary(sar_model)
+```
+
+```{r}
+# Número de observaciones
+n <- nrow(datos)
+
+# Número de parámetros estimados (incluyendo el intercepto y rho)
+k <- length(coef(sar_model)) + 1  # '+ 1' para rho
+
+# Varianza residual
+sigma_squared <- sar_model$s2
+
+# Calcular TSS
+TSS <- sum((datos$log_price - mean(datos$log_price))^2)
+
+# Calcular RSS
+RSS <- sigma_squared * n
+
+# Calcular R^2
+R2 <- 1 - (RSS / TSS)
+
+# Calcular R^2 ajustado
+R2_adj <- 1 - ((1 - R2) * (n - 1) / (n - k - 1))
+
+R2_adj
+```

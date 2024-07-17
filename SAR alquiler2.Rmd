@@ -115,11 +115,3 @@ R2_adj <- 1 - ((1 - R2) * (n - 1) / (n - k - 1))
 
 R2_adj
 ```
-
-```{r}
-library(pander)
-```
-
-```{r}
-pander(summary(sar_model))
-```

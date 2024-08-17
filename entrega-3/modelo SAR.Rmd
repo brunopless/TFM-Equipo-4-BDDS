@@ -30,7 +30,7 @@ data <- read_excel("2024_08_08_Consolidado_BCN.xlsx")
 one_hot_propertyType <- model.matrix(~ `propertyType` - 1, data = data)
 
 # Convertir el resultado a un dataframe y agregarlo al dataframe original
-data <- cbind(data, one_hot_encoded)
+data <- cbind(data, one_hot_propertyType)
 ```
 
 ##Recodificar status
@@ -61,33 +61,66 @@ Tenemos 4 valores perdidos.
 data <- data[!is.na(data$media_precios_airbnbs_500), ]
 ```
 
+##Limpiar newDevelopment
+
+Tenemos 1 valor perdido.
+
+```{r}
+data <- data[!is.na(data$newDevelopment), ]
+```
+
+##Limpiar floors y bathrooms
+
+Tenemos 11 valores perdidos. Basta con limpiar solo una variable.
+
+```{r}
+data <- data[!is.na(data$rooms), ]
+```
+
 ##Crear log_price
 ```{r}
 # Crear una nueva columna con los logaritmos naturales
 data$log_price <- log(data$price)
 ```
+
+#Entrenar SAR
+
+```{r}
+library(MASS)
+library(spdep)
+library(spatialreg)
+```
+
+##Seleccionar variables
 ```{r}
 numeric_vars <- names(data)[sapply(data, is.numeric)]
 ```
 
 ```{r}
 # Variables a eliminar
-remove_vars <- c("latitude", "longitude", "price", "Fecha extraccion", "log_price")
+remove_vars <- c("latitude", "longitude", "price", "Fecha extraccion", "exterior", "isParkingSpaceIncludedInPrice", "ParkingSpacePrice", "log_price")
 
+print(numeric_vars)
+```
+
+```{r}
 # Filtrando las variables
-filtered_numeric_vars <- setdiff(numeric_vars, remove_vars)
+variables_SAR <- setdiff(numeric_vars, remove_vars)
+print(variables_SAR)
+```
+##Filtrar Barcelona en nuevo dataset
+
+```{r}
+data_bcn <- subset(data, municipality == "Barcelona")
+```
+
+##Entrenar SAR
+
+```{r}
+formula <- as.formula(paste("log_price ~", paste(variables_SAR, collapse=" + ")))
 ```
 
 ```{r}
-# Entrenar el modelo SAR con menos variables para optimizar el tiempo de ejecución
-selected_vars <- c("floor", "size", "rooms", "bathrooms", "hasLift", "num_metro_500",
-                  "num_parking_500", "num_airbnbs_500", "status_renew", "propertyType_studio")
-
-formula <- as.formula(paste("log_price ~", paste(selected_vars, collapse=" + ")))
-```
-
-```{r}
-library(spdep)
 # Función para introducir una pequeña perturbación aleatoria
 perturbate <- function(x) {
   x + runif(length(x), min = -1e-10, max = 1e-10)
@@ -95,17 +128,17 @@ perturbate <- function(x) {
 
 # Introducir una pequeña perturbación aleatoria en las coordenadas
 set.seed(42)  # Para reproducibilidad
-datos$longitude <- perturbate(datos$longitude)
-datos$latitude <- perturbate(datos$latitude)
+data_bcn$longitude <- perturbate(data_bcn$longitude)
+data_bcn$latitude <- perturbate(data_bcn$latitude)
 
 ```
 
 ```{r}
-nb <- knn2nb(knearneigh(cbind(datos$longitude, datos$latitude), k=10))
+nb <- knn2nb(knearneigh(cbind(data_bcn$longitude, data_bcn$latitude), k=10))
 ```
 
 ```{r}
-sar_model <- lagsarlm(formula = formula, data=datos, listw= nb2listw(nb, style = "W"))
+sar_model <- lagsarlm(formula = formula, data=data_bcn, listw= nb2listw(nb, style = "W"))
 ```
 
 ```{r}

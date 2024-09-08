@@ -27,7 +27,7 @@ print(numeric_vars)
 ```
 
 ```{r}
-remove_vars <- c("...1", "log_price", "price_m2", "log_price_m2", "latitude", "longitude")
+remove_vars <- c("...1", "price", "log_price", "price_m2", "log_price_m2", "latitude", "longitude")
 ```
 
 ```{r}

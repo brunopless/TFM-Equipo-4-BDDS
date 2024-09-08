@@ -1,0 +1,115 @@
+---
+title: "SAR"
+author: "Juan Carraha"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(MASS)
+library(spdep)
+library(spatialreg)
+library(readr)
+```
+
+```{r}
+url <- "https://raw.githubusercontent.com/brunopless/TFM-Equipo-4-BDDS/main/entrega-3/df_bcn_imputado.csv"
+data <- read_csv(url)
+```
+
+```{r}
+numeric_vars <- names(data)[sapply(data, is.numeric)]
+print(numeric_vars)
+```
+
+```{r}
+remove_vars <- c("...1", "log_price", "price_m2", "log_price_m2", "latitude", "longitude")
+```
+
+```{r}
+variables_SAR <- setdiff(numeric_vars, remove_vars)
+print(variables_SAR)
+```
+
+```{r}
+#Acá hay que cambiar la variable dependiente según el modelo que se quiera correr (price, price_m2, log_price, log_price_m2)
+formula <- as.formula(paste("log_price_m2 ~", paste(variables_SAR, collapse=" + ")))
+
+formula
+```
+
+```{r}
+# Función para introducir una pequeña perturbación aleatoria
+perturbate <- function(x) {
+  x + runif(length(x), min = -1e-10, max = 1e-10)
+}
+
+# Introducir una pequeña perturbación aleatoria en las coordenadas
+set.seed(42)  # Para reproducibilidad
+data$longitude <- perturbate(data$longitude)
+data$latitude <- perturbate(data$latitude)
+```
+
+```{r}
+nb <- knn2nb(knearneigh(cbind(data$longitude, data$latitude), k=10))
+```
+
+```{r}
+sar_model <- lagsarlm(formula = formula, data=data, listw= nb2listw(nb, style = "W"))
+```
+
+```{r}
+options(scipen = 1000000000)
+summary(sar_model)
+```
+
+# 1. Calcular el pseudo-R^2 y el pseudo-R^2 ajustado
+# Varianza residual
+```{r}
+residual_var <- var(residuals(sar_model))
+
+# Varianza total de la variable dependiente
+total_var <- var(data$log_price)
+
+# Pseudo R^2
+pseudo_R2 <- 1 - (residual_var / total_var)
+
+# Pseudo R^2 ajustado
+n <- nrow(data)
+k <- length(variables_SAR)
+pseudo_R2_adj <- 1 - ((1 - pseudo_R2) * (n - 1) / (n - k - 1))
+```
+
+# 2. AIC
+```{r}
+aic_value <- AIC(sar_model)
+```
+
+# 4. y 5. Calcular MAE y MAPE
+# Predicciones del modelo
+
+```{r}
+predictions <- predict(sar_model)
+
+# MAE (Error absoluto medio)
+mae_value <- mean(abs(predictions - data$log_price))
+
+# MAPE (Error absoluto porcentual medio)
+mape_value <- mean(abs((predictions - data$log_price) / data$log_price)) * 100
+```
+
+# Mostrar resultados
+
+```{r}
+list(
+  pseudo_R2 = pseudo_R2,
+  pseudo_R2_adj = pseudo_R2_adj,
+  AIC = aic_value,
+  MAE = mae_value,
+  MAPE = mape_value
+)
+```

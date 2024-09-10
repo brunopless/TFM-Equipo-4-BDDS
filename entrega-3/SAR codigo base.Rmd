@@ -73,7 +73,7 @@ summary(sar_model)
 residual_var <- var(residuals(sar_model))
 
 # Varianza total de la variable dependiente
-total_var <- var(data$log_price)
+total_var <- var(data$log_price_m2)
 
 # Pseudo R^2
 pseudo_R2 <- 1 - (residual_var / total_var)
@@ -96,10 +96,10 @@ aic_value <- AIC(sar_model)
 predictions <- predict(sar_model)
 
 # MAE (Error absoluto medio)
-mae_value <- mean(abs(predictions - data$log_price))
+mae_value <- mean(abs(predictions - data$log_price_m2))
 
 # MAPE (Error absoluto porcentual medio)
-mape_value <- mean(abs((predictions - data$log_price) / data$log_price)) * 100
+mape_value <- mean(abs((predictions - data$log_price_m2) / data$log_price_m2)) * 100
 ```
 
 # Mostrar resultados

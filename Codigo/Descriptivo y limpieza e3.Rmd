@@ -1,0 +1,705 @@
+---
+title: "Descriptivo y limpieza e3"
+author: "brunopless"
+date: "2024-07-04"
+output: pdf_document
+---
+
+#LIBRERÍAS
+
+```{r}
+library(tidyverse)
+library(ggplot2)
+library(readxl)
+library(flexplot)
+library(jsonlite)
+library(httr)
+library(readxl)
+library(reshape2)
+library(ggmap)
+library(leaflet)
+
+options(scipen = 100000)
+```
+
+
+
+
+
+
+
+
+
+
+#DATOS
+
+#Precio bruto
+
+##Todos
+```{r}
+url <- "https://github.com/brunopless/TFM-Equipo-4-BDDS/raw/main/entrega-3/2024_08_23_Consolidado_BCN.xlsx"
+
+response <- GET(url)
+content <- content(response, "raw")
+
+temp_file <- tempfile(fileext = ".xlsx")
+
+writeBin(content, temp_file)
+
+df <- suppressWarnings(read_excel(temp_file))
+
+df <- subset(df, municipality == "Barcelona")
+
+summary(df)
+```
+
+Vamos a convertir size en numérico
+```{r}
+df$size <- as.numeric(df$size)
+```
+
+
+
+
+##Alquiler
+
+```{r}
+renta <- df[df$operation == "rent", ]
+
+renta
+```
+
+Tipos de variables
+```{r}
+summary(renta)
+```
+
+Cambiamos tipo de datos
+```{r}
+renta$price <- as.numeric(renta$price)
+```
+
+Observamos la media y sd
+```{r}
+media <- mean(renta$price)
+desviacion_estandar <- sd(renta$price)
+
+print(paste("Media:", media))
+print(paste("Desviación Estándar:", desviacion_estandar))
+```
+
+Obsevamos la distribución
+```{r}
+renta_price_dist <- flexplot(1 ~ price, renta) +
+  ggtitle("Distribución del precio de renta con todas las observaciones") +
+  ylab("Cantidad de observaciones") +
+  xlab("Precio de renta") +
+  theme_classic()
+
+print(renta_price_dist)
+```
+
+
+
+
+
+###Outliers
+
+```{r}
+# Calcular los cuartiles y el IQR
+Q1 <- quantile(renta$price, 0.025)
+Q3 <- quantile(renta$price, 0.075)
+IQR <- Q3 - Q1
+
+# Determinar los límites inferior y superior
+lower_bound <- Q1 - 1.5 * IQR
+upper_bound <- Q3 + 1.5 * IQR
+
+# Filtrar las filas con outliers bajos en la variable 'price'
+outliers_bajos <- renta[renta$price < lower_bound, ]
+
+# Filtrar las filas con outliers altos en la variable 'price'
+outliers_altos <- renta[renta$price > upper_bound, ]
+
+# Imprimir las filas con outliers bajos
+print("Filas con outliers bajos en la variable 'price':")
+print(outliers_bajos)
+
+# Imprimir las filas con outliers altos
+print("Filas con outliers altos en la variable 'price':")
+print(outliers_altos)
+```
+
+Vamos a ver las características de estos outliers
+```{r}
+nrow(outliers_altos)
+
+summary(outliers_altos)
+```
+
+
+
+###Cuantil 97.5
+```{r}
+renta_975 <- quantile(renta$price, 0.975)
+
+renta_975 <- renta[renta$price <= renta_975, ]
+
+media_975 <- mean(renta_975$price)
+desviacion_estandar_975 <- sd(renta_975$price)
+
+print(paste("Media:", media_975))
+print(paste("Desviación Estándar:", desviacion_estandar_975))
+```
+
+```{r}
+renta_975_price_dist <- flexplot(1 ~ price, renta_975) +
+  ggtitle("Distribución del precio de renta después de eliminar outliers") +
+  ylab("Cantidad de observaciones") +
+  xlab("Precio de renta") +
+  theme_classic()
+
+print(renta_975_price_dist)
+```
+
+###Distribución de variables
+```{r}
+names(renta_975) <- make.names(names(renta_975))
+
+# Seleccionar solo las columnas numéricas, excepto "price"
+num_vars <- renta_975[, sapply(renta_975, is.numeric) & names(renta_975) != "price"]
+
+# Obtener los nombres de las variables numéricas
+num_vars_names <- names(num_vars)
+
+# Graficar usando flexplot
+for (var_name in num_vars_names) {
+  p <- flexplot(as.formula(paste("1 ~", var_name)), data = renta_975) +
+    labs(title = var_name) +
+    theme_minimal() 
+  
+  print(p)  # Imprimir cada gráfico
+}
+```
+
+Comparación de num y media de aribnbs con 0
+```{r}
+cat("Cantidad de propiedades con 0 airbnbs en un radio de 500 mts: ", 
+    nrow(renta_975[renta_975$num_airbnbs_500 == 0, ]), 
+    "\nCantidad de propiedades con airbnbs cercanos con media 0: ", 
+    nrow(renta_975[renta_975$media_precios_airbnbs_500 == 0, ]))
+```
+
+
+###Modas price
+```{r}
+plot(density(renta_975$price), main="Estimación de densidad de precio de renta", xlab="Precio de renta")
+```
+
+
+###Log price
+```{r}
+log_renta_975 <- renta_975 %>%
+  mutate(price = log(price))
+
+log_renta_975_dist <- flexplot(price ~ 1, data = log_renta_975) +
+  ggtitle("Distribución del logarítmo del precio de renta") +
+  ylab("Cantidad de observaciones") +
+  xlab("Logaritmo del precio de renta") +
+  theme_classic()
+
+print(log_renta_975_dist)
+```
+
+###Modas de log price
+```{r}
+plot(density(log_renta_975$price), main="Estimación de densidad del logaritmo del precio de renta", 
+     xlab="Logaritmo del precio de renta", 
+     ylab = "Densidad")
+```
+
+###Normalidad log price
+```{r}
+qqnorm(log_renta_975$price, 
+       main = "Normal Q-Q Plot del logaritmo del precio de renta",
+       xlab = "Cuantiles teoréticos",
+       ylab = "Logaritmo del precio de renta")
+qqline(log_renta_975$price, col = "red")
+```
+
+###Análisis de grupos log
+```{r}
+# Crear los grupos basados en los cortes especificados
+log_renta_975_filtrado <- log_renta_975
+
+log_renta_975_filtrado$grupo <- cut(log_renta_975$price, 
+                                    breaks = c(7.2, 7.7, 8.2), 
+                                    labels = c("Primera moda", "Segunda moda"),
+                                    include.lowest = TRUE)
+
+# Filtrar para eliminar las colas
+log_renta_975_filtrado <- subset(log_renta_975_filtrado, !is.na(log_renta_975_filtrado$grupo))
+
+# Asegurarse de que los nombres de las columnas sean válidos
+names(log_renta_975_filtrado) <- make.names(names(log_renta_975_filtrado))
+
+# Seleccionar solo las columnas numéricas, excepto "price"
+num_vars <- log_renta_975_filtrado[, sapply(log_renta_975_filtrado, is.numeric) & names(log_renta_975_filtrado) != "price"]
+
+# Obtener los nombres de las variables numéricas
+num_vars_names <- names(num_vars)
+
+# Graficar las cajas para cada variable numérica
+for (var_name in num_vars_names) {
+  p <- ggplot(log_renta_975_filtrado, aes(x = grupo, y = .data[[var_name]], fill = grupo)) +
+    geom_boxplot() +
+    labs(title = var_name, x = "Grupo", y = "Valor", fill = "Grupo") +
+    theme_minimal()
+  
+  print(p)  # Imprimir cada gráfico
+}
+```
+
+Log precio por m2 de ambas modas
+```{r}
+ggplot(log_renta_975_filtrado, aes(x = grupo, y = price/size, fill = grupo)) +
+    geom_boxplot() +
+    labs(title = "Precio del logaritmo de renta por m2 de ambas modas", x = "Grupo", y = "Log(precio/m2)", fill = "Grupo") +
+    theme_minimal()
+```
+
+T-test m2
+```{r}
+t.test((log_renta_975_filtrado$price[log_renta_975_filtrado$grupo == "Primera moda"]) / (log_renta_975_filtrado$size[log_renta_975_filtrado$grupo == "Primera moda"]),
+       (log_renta_975_filtrado$price[log_renta_975_filtrado$grupo == "Segunda moda"]) /
+        (log_renta_975_filtrado$size[log_renta_975_filtrado$grupo == "Segunda moda"]))
+```
+Análisis geográfico
+```{r}
+log_renta_975_filtrado$grupo <- as.factor(log_renta_975_filtrado$grupo)
+
+pal <- colorFactor(c("blue", "purple"), domain = log_renta_975_filtrado$grupo)
+
+# Crear un mapa con leaflet
+map <- leaflet(log_renta_975_filtrado) %>%
+  addTiles() %>%  # Añadir el mapa base de OpenStreetMap
+  addCircleMarkers(
+    lng = ~longitude, lat = ~latitude, 
+    color = ~pal(grupo), 
+    radius = 4, opacity = 0.7,
+    popup = ~paste("Grupo:", grupo)
+  ) %>%
+  addLegend("bottomright", pal = pal, values = ~grupo,
+            title = "Grupo", opacity = 1)
+
+# Mostrar el mapa
+map
+```
+
+
+
+
+
+
+
+##Venta
+
+```{r}
+venta <- df[df$operation == "sale", ]
+
+venta
+```
+
+
+```{r}
+venta$price <- as.numeric(venta$price)
+```
+
+```{r}
+summary(venta)
+```
+
+```{r}
+media <- mean(venta$price)
+desviacion_estandar <- sd(venta$price)
+
+print(paste("Media:", media))
+print(paste("Desviación Estándar:", desviacion_estandar))
+```
+
+
+
+```{r}
+venta_dist <- flexplot(price ~ 1, data = venta) +
+  ggtitle("Distribución del precio de venta") +
+  ylab("Cantidad de observaciones") +
+  xlab("Precio de venta") +
+  theme_classic()
+
+print(venta_dist)
+```
+
+
+
+
+
+###Log price
+```{r}
+log_venta <- venta %>%
+  mutate(price = log(price))
+
+flexplot(price ~ 1, data = log_venta)
+```
+
+
+
+
+
+
+
+#Comparación alq-ven
+```{r}
+# Asegurarse de que los nombres de las columnas sean válidos
+names(df) <- make.names(names(df))
+
+# Seleccionar solo las columnas numéricas, excepto "price"
+num_vars <- df[, sapply(df, is.numeric) & names(df) != "price"]
+
+# Obtener los nombres de las variables numéricas
+num_vars_names <- names(num_vars)
+
+# Graficar las cajas para cada variable numérica
+for (var_name in num_vars_names) {
+  p <- ggplot(df, aes(x = operation, y = .data[[var_name]], fill = operation)) +
+    geom_boxplot() +
+    labs(title = var_name, x = "Operation", y = "Valor", fill = "Operation") +
+    theme_minimal()
+  
+  print(p)  # Imprimir cada gráfico
+}
+```
+
+
+
+
+
+
+
+
+
+
+#Precio / m2
+
+##Alquiler m2
+```{r}
+renta_975_m2 <- renta_975 %>%
+  mutate(price = price / size)
+
+summary(renta_975_m2)
+```
+
+```{r}
+media <- mean(renta_975_m2$price)
+desviacion_estandar <- sd(renta_975_m2$price)
+
+print(paste("Media:", media))
+print(paste("Desviación Estándar:", desviacion_estandar))
+```
+
+
+
+```{r}
+renta_975_m2_dist <- flexplot(price ~ 1, data = renta_975_m2) +
+  ggtitle("Distribución del precio de renta por m2") +
+  ylab("Cantidad de observaciones") +
+  xlab("Precio de renta por m2") +
+  theme_classic()
+
+print(renta_975_m2_dist)
+```
+
+##Log alquiler m2
+```{r}
+log_renta_975_m2 <- renta_975_m2 %>%
+  mutate(price = log(price))
+
+log_renta_975_m2_dist <- flexplot(price ~ 1, data = log_renta_975_m2) +
+  ggtitle("Distribución del logarítmo del precio de renta por m2") +
+  ylab("Cantidad de observaciones") +
+  xlab("Logaritmo del precio de renta por m2") +
+  theme_classic()
+
+print(log_renta_975_m2_dist)
+```
+
+
+
+##Venta m2
+```{r}
+venta_m2 <- venta %>%
+  mutate(price = price / size)
+
+summary(venta_m2)
+```
+
+```{r}
+media <- mean(venta_m2$price)
+desviacion_estandar <- sd(venta_m2$price)
+
+print(paste("Media:", media))
+print(paste("Desviación Estándar:", desviacion_estandar))
+```
+
+
+```{r}
+venta_m2_dist <- flexplot(price ~ 1, data = venta_m2) +
+  ggtitle("Distribución del precio de venta por m2") +
+  ylab("Cantidad de observaciones") +
+  xlab("Precio de venta por m2") +
+  theme_classic()
+
+print(venta_m2_dist)
+```
+
+
+##Log venta m2
+```{r}
+log_venta_m2 <- venta_m2 %>%
+  mutate(price = log(price))
+
+log_venta_m2_dist <- flexplot(price ~ 1, data = log_venta_m2) +
+  ggtitle("Distribución del logarítmo del precio de venta por m2") +
+  ylab("Cantidad de observaciones") +
+  xlab("Logaritmo del precio de venta por m2") +
+  theme_classic()
+
+print(log_venta_m2_dist)
+```
+
+
+
+
+#Análisis precio bruto
+
+##Est alq-ven
+
+Aquí obtendremos una estimación del precio de renta a partir del de venta
+```{r}
+mean(renta_975$price) / mean(venta$price)
+```
+
+Ahora con la mediana
+```{r}
+median(renta_975$price) / median(venta$price)
+```
+
+
+Parece que la renta equivale al 1.1% del valor de venta.
+
+```{r}
+estim_renta_venta <- venta %>%
+  mutate(price = price * 0.011)
+
+cat("Media 97.5% renta: ", mean(renta_975$price),
+      "\nMedia renta estimada de venta (1.1%): ", mean(estim_renta_venta$price),
+      "\nSD 97.5% renta: ", sd(renta_975$price),
+      "\nSD renta estimada de venta (1.1%): ", sd(estim_renta_venta$price))
+```
+
+
+
+
+
+##T-test 1.1%
+```{r}
+t.test(renta_975$price, estim_renta_venta$price)
+```
+
+
+
+
+
+##Unión renta y estimación
+```{r}
+bruto_final <- rbind(renta_975, estim_renta_venta)
+
+summary(bruto_final)
+
+cat("SD price: ", mean(bruto_final$price))
+```
+
+```{r}
+bruto_final_dist <- flexplot(price ~ 1, data = bruto_final) +
+  ggtitle("Distribución de la unión del precio de renta y su estimación 
+a partir de la venta (1,1%)") +
+  ylab("Cantidad de observaciones") +
+  xlab("Precio de renta y estimación de renta") +
+  theme_classic()
+
+print(bruto_final_dist)
+```
+
+
+
+
+
+##Log unión 
+```{r}
+log_bruto_final <- bruto_final %>%
+  mutate(price = log(price))
+
+log_bruto_final_dist <- flexplot(price ~ 1, data = log_bruto_final) +
+  ggtitle("Distribución del logaritmo de la unión del precio de renta y 
+su estimación a partir de la venta (1,1%)") +
+  ylab("Cantidad de observaciones") +
+  xlab("Logaritmo del precio de renta y estimación de renta") +
+  theme_classic()
+
+print(log_bruto_final_dist)
+```
+
+
+
+
+
+##Normalidad log price
+```{r}
+qqnorm(log_bruto_final$price, 
+       main = "Normal Q-Q Plot del logaritmo del precio de renta",
+       xlab = "Cuantiles teoréticos",
+       ylab = "Logaritmo del precio de renta y la estimación de renta")
+qqline(log_bruto_final$price, col = "red")
+```
+
+
+
+
+
+
+
+
+
+#Analisis precio m2
+
+##Est al-ven m2
+
+```{r}
+mean(renta_975_m2$price) / mean(venta_m2$price)
+```
+
+```{r}
+median(renta_975_m2$price) / median(venta_m2$price)
+```
+
+
+
+Parece que el precio por metro cuadrado de las propiedades en alquiler equivalen al 0.8% de precio por m2 de las de venta.
+
+```{r}
+estim_renta_venta_m2 <- venta_m2  %>%
+  mutate(price = price * 0.008308028)
+
+cat("Media 97.5% renta por m2: ", mean(renta_975_m2$price),
+      "\nMedia renta estimada de venta por m2 (0.9%): ", mean(estim_renta_venta_m2$price),
+      "\nSD 97.5% renta por m2: ", sd(renta_975_m2$price),
+      "\nSD renta estimada de venta por m2 (0.9%): ", sd(estim_renta_venta_m2$price))
+```
+
+
+
+
+```{r}
+flexplot(price ~ 1, data = estim_renta_venta_m2)
+```
+
+
+
+
+
+##T-test m2 0.9%
+```{r}
+t.test(renta_975$price, estim_renta_venta_m2$price)
+```
+
+
+
+
+
+##Unión m2 renta y estimación 
+```{r}
+bruto_final_m2 <- rbind(renta_975_m2, estim_renta_venta_m2)
+
+summary(bruto_final_m2)
+
+cat("SD price: ", mean(bruto_final_m2$price))
+```
+
+
+
+
+
+##Log unión m2
+```{r}
+log_bruto_final_m2 <- bruto_final_m2 %>%
+  mutate(price = log(price))
+
+log_bruto_final_m2_dist <- flexplot(price ~ 1, data = log_bruto_final_m2) +
+  ggtitle("Distribución del logaritmo de la unión del precio de renta y 
+su estimación a partir de la venta (0,8%) por m2") +
+  ylab("Cantidad de observaciones") +
+  xlab("Logaritmo del precio de renta y estimación de renta por m2") +
+  theme_classic()
+
+print(log_bruto_final_m2_dist)
+```
+
+
+
+
+
+##Normalidad log price
+```{r}
+qqnorm(log_bruto_final_m2$price, 
+       main = "Normal Q-Q Plot del logaritmo del precio de renta",
+       xlab = "Cuantiles teoréticos",
+       ylab = "Logaritmo del precio de renta y la estimación de renta")
+qqline(log_bruto_final_m2$price, col = "red")
+```
+
+
+
+
+
+
+#Df final 
+Con cada posible precio como columna
+```{r}
+df_con_NAs <- bruto_final
+
+df_con_NAs <- df_con_NAs %>%
+  select(-municipality) %>%
+  mutate(log_price = log(price)) %>%
+  mutate(price_m2 = bruto_final_m2$price) %>%
+  mutate(log_price_m2 = log(bruto_final_m2$price))
+
+write.csv(df_con_NAs, file = "df_con_NAs.csv")
+
+df_con_NAs
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

@@ -1,0 +1,100 @@
+---
+title: "Modificación de df de e3"
+author: "brunopless"
+date: "2024-09-06"
+output: html_document
+---
+
+
+Librerias
+```{r}
+library(tidyverse)
+```
+
+#DF inicial
+
+Datos
+```{r}
+df <- as.data.frame(read.csv("https://raw.githubusercontent.com/brunopless/TFM-Equipo-4-BDDS/main/entrega-3/df_bcn_imputado.csv"))
+
+summary(df)
+```
+
+Eliminamos columnas redundantes
+```{r}
+df <- subset(df, select = -c(X, index, Fecha.extraccion, address, province, district, country, neighborhood, propertyType,
+                             propertyType_studio, status, status_renew,
+                             banco_mas_cercano, starbucks_mas_cercano, atractivos_mas_cercano, buenasmigas_mas_cercano, 
+                             clubesnocturnos_mas_cercano, mcdonalds_mas_cercano, metro_mas_cercano, parking_mas_cercano,
+                             parkingbici_mas_cercano, parques_mas_cercano, playas_mas_cercano, santagloria_mas_cercano, vivari_mas_cercano,
+                             distancia_minima_banco, distancia_minima_starbucks, distancia_minima_atractivos, distancia_minima_buenasmigas,
+                             distancia_minima_clubesnocturnos, distancia_minima_mcdonalds, distancia_minima_metro, distancia_minima_parking,
+                             distancia_minima_parkingbici, distancia_minima_parques, distancia_minima_playas, distancia_minima_santagloria, 
+                             distancia_minima_vivari))
+```
+
+Variables binarias de ceros inflados
+```{r}
+df <- df %>%
+  mutate(
+    num_airbnbs_500_mas_de_cero = ifelse(num_airbnbs_500 > 0, 1, 0),
+    media_precios_airbnbs_500_mas_de_cero = ifelse(media_precios_airbnbs_500 > 0, 1, 0),
+    across(
+      .cols = matches("^numero_.*(_cercanos|_500)$"),  # Selecciona columnas que terminan con '_cercanos' o '_500'
+      .fns = ~ ifelse(. > 0, 1, 0),  # Aplica la transformación a las columnas seleccionadas
+      .names = "{.col}_mas_de_cero"  # Nombra las nuevas columnas con el sufijo '_mas_de_cero'
+    )
+  )
+```
+
+NAs
+```{r}
+#Intertar 0 en los valores de floor que sean "" y convertir a numérica la variable
+df <- df %>%
+  mutate(floor = case_when(
+    floor == "" ~ "0",
+    floor == "bj" ~ "0",
+    floor == "en" ~ "0.5",
+    floor == "st" ~ "-1",
+    floor == "ss" ~ "-0.5",
+    floor == "60" ~ "6", #El edificio más alto de Barcelona tiene 38 pisos
+    TRUE ~ floor  # Mantener el valor original si no coincide con las condiciones anteriores
+  ))
+
+df$floor <- as.numeric(df$floor)
+
+#Imputar con 0 los NAs de exterior CON PYTHON
+```
+
+Salvar datos
+```{r}
+write.csv(df, file = "df_NAs_exterior.csv")
+
+df
+```
+
+#DF final
+
+datos
+```{r}
+df <- as.data.frame(read.csv("df_bcn_imputado_070924.csv"))
+
+df <- select(df, -Unnamed..0)
+
+summary(df)
+```
+
+descarga
+```{r}
+write.csv(df, file = "df_bcn_imputado.csv")
+
+df
+```
+
+
+
+
+
+
+
+

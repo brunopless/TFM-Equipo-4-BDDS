@@ -1,0 +1,612 @@
+---
+title: "Equipamientos, transporte, hitos turísitcos, parques, plazas y playas de Barcelona"
+author: "Juan Carraha"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(osmdata)
+library(sf)
+library(dplyr)
+```
+
+# Extracción de la data de OSM
+
+Desde OpenSteetMaps, usando el paquete osmdata, extraemos la data correspondiente a diferentes atributos urbanos para el área de Barcelona. 
+
+## Equipamientos y servicios
+
+```{r}
+query_amenities <- opq(bbox = "Barcelona, Spain") %>%
+  add_osm_feature(key = "amenity")
+barcelona_amenities <- osmdata_sf(query_amenities)
+amenities_points <- barcelona_amenities$osm_points
+amenities_polygons <- barcelona_amenities$osm_polygons
+```
+
+## Estaciones de metro
+
+```{r}
+query_metro <- opq(bbox = "Barcelona, Spain") %>%
+  add_osm_feature(key = "railway", value = "station")
+barcelona_metro <- osmdata_sf(query_metro)
+metro_stations <- barcelona_metro$osm_points
+```
+
+## Estaciones de travía
+
+```{r}
+query_tram_stops <- opq(bbox = "Barcelona, Spain") %>%
+  add_osm_feature(key = "railway", value = "tram_stop")
+barcelona_tram_stops <- osmdata_sf(query_tram_stops)
+tram_stops <- barcelona_tram_stops$osm_points
+```
+
+## Puntos turísticos
+
+```{r}
+query_tourism <- opq(bbox = "Barcelona, Spain") %>%
+  add_osm_feature(key = "tourism")
+barcelona_tourism <- osmdata_sf(query_tourism)
+tourism_points <- barcelona_tourism$osm_points
+tourism_polygons <- barcelona_tourism$osm_polygons
+```
+
+## Parques
+
+```{r}
+query_parks <- opq(bbox = "Barcelona, Spain") %>%
+  add_osm_feature(key = "leisure", value = "park")
+barcelona_parks <- osmdata_sf(query_parks)
+parks_polygons <- barcelona_parks$osm_polygons
+```
+
+## Plazas
+
+```{r}
+query_squares <- opq(bbox = "Barcelona, Spain") %>%
+  add_osm_feature(key = "place", value = "square")
+barcelona_squares <- osmdata_sf(query_squares)
+squares_points <- barcelona_squares$osm_points
+squares_polygons <- barcelona_squares$osm_polygons
+```
+
+## Playas
+
+```{r}
+query_beaches <- opq(bbox = "Barcelona, Spain") %>%
+  add_osm_feature(key = "natural", value = "beach")
+barcelona_beaches <- osmdata_sf(query_beaches)
+beaches_polygons <- barcelona_beaches$osm_polygons
+```
+
+## Edificios históricos
+
+Edificios como la Casa Batllò o la Basílica de la Sagrada Familia no están incluídos dentro de los polígonos con key tourism. Sí como amenity, pero cuyos valores no son específicos a su valor patrimonial (en estos dos ejemplos, uno es apartment y el otro place_of_worship). En la columna historic se incluyen polígonos o nodos que representan sitios de valor histórico, en concreto tomaremos aquellos que poseen la categoría heritage. Podríamos hilar más fino y tomar la columna heritage:operator con el valor whc (World Heritage Centre, de UNESCO), o la columna importance con el valor international.
+
+```{r}
+query_heritage <- opq(bbox = "Barcelona, Spain") %>%
+  add_osm_feature(key = "historic", value = "heritage")
+barcelona_heritage <- osmdata_sf(query_heritage)
+heritage_polygons <- barcelona_heritage$osm_polygons
+heritage_polygons$historic <- "heritage"
+```
+
+## Procesamiento de datos
+
+### Función para procesar los puntos
+
+```{r}
+process_points <- function(data, feature_type) {
+  data <- st_transform(data, 4326)  # Transformar las coordenadas al sistema de referencia correcto (WGS84)
+  
+  coords <- st_coordinates(data)
+  
+  data_df <- cbind(data, coords)
+  
+  if (!"name" %in% colnames(data_df)) {
+    data_df$name <- NA
+  }
+  if (!"amenity" %in% colnames(data_df)) {
+    data_df$amenity <- NA
+  }
+  if (!"tourism" %in% colnames(data_df)) {
+    data_df$tourism <- NA
+  }
+  if (!"historic" %in% colnames(data_df)) {
+    data_df$historic <- NA
+  }
+  if (!"place" %in% colnames(data_df)) {
+    data_df$place <- NA
+  }
+  if (!"type" %in% colnames(data_df)) {
+    data_df$type <- NA
+  }
+  
+  result <- data_df %>%
+    st_drop_geometry() %>%  # Eliminar la geometría para obtener un dataframe simple
+    select(osm_id, name, amenity, tourism, historic, place, X, Y) %>%  # Seleccionar columnas de interés
+    rename(longitude = X, latitude = Y) %>%  # Renombrar columnas de coordenadas
+    mutate(type = feature_type)  # Añadir columna del tipo de feature
+  
+  return(result)
+}
+```
+
+### Función para procesar los polígonos
+
+```{r}
+process_polygons <- function(data, feature_type) {
+  data <- st_transform(data, 4326)
+  data <- st_centroid(data)  # Calcular los centroides
+  coords <- st_coordinates(data)
+  data_df <- cbind(data, coords)
+  
+  if (!"name" %in% colnames(data_df)) {
+    data_df$name <- NA
+  }
+  if (!"tourism" %in% colnames(data_df)) {
+    data_df$tourism <- NA
+  }
+  if (!"amenity" %in% colnames(data_df)) {
+    data_df$amenity <- NA
+  }
+  if (!"historic" %in% colnames(data_df)) {
+    data_df$historic <- NA
+  }
+  if (!"place" %in% colnames(data_df)) {
+    data_df$place <- NA
+  }
+  if (!"type" %in% colnames(data_df)) {
+    data_df$type <- NA
+  }
+  
+  result <- data_df %>%
+    st_drop_geometry() %>%
+    select(osm_id, name, amenity, tourism, historic, place, X, Y) %>%
+    rename(longitude = X, latitude = Y) %>%
+    mutate(type = feature_type)
+  
+  return(result)
+}
+```
+
+### Procesar cada tipo de Punto
+
+```{r}
+amenities_processed <- process_points(amenities_points, "amenity")
+metro_processed <- process_points(metro_stations, "metro_station")
+tram_processed <- process_points(tram_stops, "tram_stop")
+tourism_processed <- process_points(tourism_points, "tourism")
+#heritage_processed <- process_points(heritage_points, "historic")
+squares_processed <- process_points(squares_points, "square")
+```
+
+### Procesar cada tipo de Polígono
+
+```{r}
+columns_to_keep <- c("name", "amenity", "tourism")
+amenities_polygons_processed <- process_polygons(amenities_polygons, "amenity")
+tourism_polygons_processed <- process_polygons(tourism_polygons, "tourism")
+parks_processed <- process_polygons(parks_polygons, "park")
+beaches_processed <- process_polygons(beaches_polygons, "beach")
+heritage_polygons_processed <- process_polygons(heritage_polygons, "historic")
+squares_polygons_processed <- process_polygons(squares_polygons, "square")
+```
+
+### Combinar
+
+```{r}
+all_points_combined <- bind_rows(
+  amenities_processed,
+  amenities_polygons_processed,
+  metro_processed,
+  tram_processed,
+  tourism_processed,
+  tourism_polygons_processed,
+  parks_processed,
+  beaches_processed,
+  heritage_polygons_processed,
+  squares_processed,
+  squares_polygons_processed
+)
+```
+
+### Eliminamos IDs repetidos
+
+Primero agrupamos por osm_id y luego dejamos un solo punto.
+
+```{r}
+all_points_combined_grouped <- all_points_combined %>%
+  group_by(osm_id) %>%
+  filter(!is.na(name) | !is.na(amenity) | !is.na(tourism) | !is.na(type) | !is.na(historic) | !is.na(place)) %>%
+  filter(osm_id != 1202318704) %>%  # Eliminamos un registro de beach que corresponde a Eurofitnes Can Dragó, gimnasio con piscina
+  slice(1) %>%
+  ungroup()
+```
+
+### Incluir hitos patrimoniales que deja fuera el código
+
+```{r}
+# Datos de los edificios
+manual_buildings <- data.frame(
+  osm_id = c(8974896, 9427554, 9194723),
+  name = c("Casa Milà", "Casa Batlló", "Basílica de la Sagrada Família"),
+  historic = "heritage",
+  type = "historic",
+  latitude = c(41.39158, 41.395277777778, 41.40369),
+  longitude = c(2.1616666666667, 2.16492, 2.17433)
+)
+
+# Asegurarse de que all_points_combined_grouped tiene las columnas necesarias
+required_columns <- c("osm_id", "name", "amenity", "tourism", "historic", "place", "longitude", "latitude", "type")
+
+# Agregar las columnas faltantes si es necesario
+for (col in required_columns) {
+  if (!col %in% colnames(all_points_combined_grouped)) {
+    all_points_combined_grouped[[col]] <- NA
+  }
+}
+
+# Convertir osm_id en manual_buildings a character para que coincida con all_points_combined_grouped
+manual_buildings$osm_id <- as.character(manual_buildings$osm_id)
+
+# Asegurarse de que all_points_combined_grouped tiene las columnas necesarias
+required_columns <- c("osm_id", "name", "amenity", "tourism", "historic", "place", "longitude", "latitude", "type")
+
+# Agregar las columnas faltantes si es necesario
+for (col in required_columns) {
+  if (!col %in% colnames(all_points_combined_grouped)) {
+    all_points_combined_grouped[[col]] <- NA
+  }
+}
+
+# Seleccionar y ordenar las columnas en manual_buildings para que coincidan con all_points_combined_grouped
+manual_buildings <- manual_buildings %>%
+  mutate(amenity = NA, tourism = NA, place = NA) %>%
+  select(all_of(required_columns))
+
+# Agregar los nuevos datos
+all_points_combined_grouped <- bind_rows(all_points_combined_grouped, manual_buildings)
+```
+
+Finalmente, cambiamos la categoría del hospital San Pau para que aparezca como edificio patrimonial. Una sección del hospital, la más moderna, se mantendrá como hospital, lo que nos sirve en caso de querer usar esos servicios.
+
+```{r}
+all_points_combined_grouped$historic[all_points_combined_grouped$osm_id == "265391701"] <- "heritage"
+all_points_combined_grouped$type[all_points_combined_grouped$osm_id == "265391701"] <- "historic"
+```
+
+# Mapas 
+
+```{r}
+library(tmap)
+library(sf)
+tmap_mode("view")
+```
+## Mapas de turismo
+
+### Mapa de artwork
+
+```{r}
+art_points <- all_points_combined_grouped %>%
+  filter(tourism == "artwork")
+art_points_sf <- st_as_sf(art_points, coords = c("longitude", "latitude"), crs = 4326)
+
+tm_shape(art_points_sf) +
+  tm_dots(col = "darkred", size = 0.1, title = "Puntos de Artwork") +
+  tm_basemap("OpenStreetMap") +
+  tm_layout(title = "Artwork en Barcelona",
+            title.size = 1.5,
+            legend.outside = TRUE,
+            legend.outside.position = "bottom")
+```
+
+### Mapa de atracciones
+
+```{r}
+attraction_points <- all_points_combined_grouped %>%
+  filter(tourism == "attraction")
+attraction_points_sf <- st_as_sf(attraction_points, coords = c("longitude", "latitude"), crs = 4326)
+
+tm_shape(attraction_points_sf) +
+  tm_dots(col = "gold", size = 0.1, title = "Puntos de atracciones") +
+  tm_basemap("OpenStreetMap") +
+  tm_layout(title = "Atracciones en Barcelona",
+            title.size = 1.5,
+            legend.outside = TRUE,
+            legend.outside.position = "bottom")
+```
+
+### Mapa de galerías
+
+```{r}
+gallery_points <- all_points_combined_grouped %>%
+  filter(tourism == "information")
+gallery_points_sf <- st_as_sf(gallery_points, coords = c("longitude", "latitude"), crs = 4326)
+
+tm_shape(gallery_points_sf) +
+  tm_dots(col = "slateblue", size = 0.1, title = "Puntos de galerías") +
+  tm_basemap("OpenStreetMap") +
+  tm_layout(title = "Galerías en Barcelona",
+            title.size = 1.5,
+            legend.outside = TRUE,
+            legend.outside.position = "bottom")
+```
+
+### Mapa de hostales
+
+```{r}
+hostel_points <- all_points_combined_grouped %>%
+  filter(tourism == "hostel")
+hostel_points_sf <- st_as_sf(hostel_points, coords = c("longitude", "latitude"), crs = 4326)
+
+tm_shape(hostel_points_sf) +
+  tm_dots(col = "tomato", size = 0.1, title = "Puntos de hostales") +
+  tm_basemap("OpenStreetMap") +
+  tm_layout(title = "Hostales en Barcelona",
+            title.size = 1.5,
+            legend.outside = TRUE,
+            legend.outside.position = "bottom")
+```
+
+### Mapa de hoteles
+
+```{r}
+hotel_points <- all_points_combined_grouped %>%
+  filter(tourism == "hotel")
+hotel_points_sf <- st_as_sf(hotel_points, coords = c("longitude", "latitude"), crs = 4326)
+
+tm_shape(hotel_points_sf) +
+  tm_dots(col = "deeppink", size = 0.1, title = "Puntos de hoteles") +
+  tm_basemap("OpenStreetMap") +
+  tm_layout(title = "Hoteles en Barcelona",
+            title.size = 1.5,
+            legend.outside = TRUE,
+            legend.outside.position = "bottom")
+```
+
+### Mapa de puntos de información
+
+```{r}
+info_points <- all_points_combined_grouped %>%
+  filter(tourism == "information")
+info_points_sf <- st_as_sf(info_points, coords = c("longitude", "latitude"), crs = 4326)
+
+tm_shape(info_points_sf) +
+  tm_dots(col = "steelblue", size = 0.1, title = "Puntos de información") +
+  tm_basemap("OpenStreetMap") +
+  tm_layout(title = "Puntos de información en Barcelona",
+            title.size = 1.5,
+            legend.outside = TRUE,
+            legend.outside.position = "bottom")
+```
+
+### Mapa de museos
+
+```{r}
+museos_points <- all_points_combined_grouped %>%
+  filter(tourism == "museum")
+museos_points_sf <- st_as_sf(museos_points, coords = c("longitude", "latitude"), crs = 4326)
+
+tm_shape(museos_points_sf) +
+  tm_dots(col = "tan3", size = 0.1, title = "Puntos de museos") +
+  tm_basemap("OpenStreetMap") +
+  tm_layout(title = "Museos en Barcelona",
+            title.size = 1.5,
+            legend.outside = TRUE,
+            legend.outside.position = "bottom")
+```
+
+### Mapa de miradores
+
+```{r}
+picnic_points <- all_points_combined_grouped %>%
+  filter(tourism == "picnic_site")
+picnic_points_sf <- st_as_sf(picnic_points, coords = c("longitude", "latitude"), crs = 4326)
+
+tm_shape(picnic_points_sf) +
+  tm_dots(col = "green", size = 0.1, title = "Puntos de sitios picnic") +
+  tm_basemap("OpenStreetMap") +
+  tm_layout(title = "Sitios de picnic en Barcelona",
+            title.size = 1.5,
+            legend.outside = TRUE,
+            legend.outside.position = "bottom")
+```
+
+### Mapa de parques temáticos
+
+```{r}
+tp_points <- all_points_combined_grouped %>%
+  filter(tourism == "theme_park")
+tp_points_sf <- st_as_sf(tp_points, coords = c("longitude", "latitude"), crs = 4326)
+
+tm_shape(tp_points_sf) +
+  tm_dots(col = "orangered", size = 0.1, title = "Puntos de parques temáticos") +
+  tm_basemap("OpenStreetMap") +
+  tm_layout(title = "Parques temáticos en Barcelona",
+            title.size = 1.5,
+            legend.outside = TRUE,
+            legend.outside.position = "bottom")
+```
+
+### Mapa de miradores
+
+```{r}
+vp_points <- all_points_combined_grouped %>%
+  filter(tourism == "viewpoint")
+vp_points_sf <- st_as_sf(vp_points, coords = c("longitude", "latitude"), crs = 4326)
+
+tm_shape(vp_points_sf) +
+  tm_dots(col = "darkcyan", size = 0.1, title = "Puntos de miradores") +
+  tm_basemap("OpenStreetMap") +
+  tm_layout(title = "Miradores en Barcelona",
+            title.size = 1.5,
+            legend.outside = TRUE,
+            legend.outside.position = "bottom")
+```
+
+### Mapa del patrimonio de la UNESCO
+
+```{r}
+hist_points <- all_points_combined_grouped %>%
+  filter(historic == "heritage")
+hist_points_sf <- st_as_sf(hist_points, coords = c("longitude", "latitude"), crs = 4326)
+
+tm_shape(hist_points_sf) +
+  tm_dots(col = "gold2", size = 0.1, title = "Puntos patrimoniales") +
+  tm_basemap("OpenStreetMap") +
+  tm_layout(title = "Patrimonio de la UNESCO en Barcelona",
+            title.size = 1.5,
+            legend.outside = TRUE,
+            legend.outside.position = "bottom")
+```
+
+# Mapear playa
+
+```{r}
+beach_points <- all_points_combined_grouped %>%
+  filter(type == "beach")
+# Asegúrate de que los datos están en formato sf
+beach_points_sf <- st_as_sf(beach_points, coords = c("longitude", "latitude"), crs = 4326)
+
+# Crear el mapa
+tm_shape(beach_points_sf) +
+  tm_dots(col = "blue", size = 0.1, title = "Beach Points") +
+  tm_basemap("OpenStreetMap") +
+  tm_layout(title = "Beaches in Barcelona",
+            title.size = 1.5,
+            legend.outside = TRUE,
+            legend.outside.position = "bottom")
+```
+
+# Mapear parques
+
+```{r}
+park_points <- all_points_combined_grouped %>%
+  filter(type == "park")
+
+park_points_sf <- st_as_sf(park_points, coords = c("longitude", "latitude"), crs = 4326)
+
+# Crear el mapa
+tm_shape(park_points_sf) +
+  tm_dots(col = "darkgreen", size = 0.1, title = "Park Points") +
+  tm_basemap("OpenStreetMap") +
+  tm_layout(title = "Parks in Barcelona",
+            title.size = 1.5,
+            legend.outside = TRUE,
+            legend.outside.position = "bottom")
+```
+
+# Mapear hospitales (ejemplo de amenity)
+
+Los puntos de amenity sí están solo como centroides.
+
+```{r}
+hosp_points <- all_points_combined_grouped %>%
+  filter(amenity == "hospital")
+hosp_points_sf <- st_as_sf(hosp_points, coords = c("longitude", "latitude"), crs = 4326)
+
+tm_shape(hosp_points_sf) +
+  tm_dots(col = "lightblue", size = 0.1, title = "Hospital Points") +
+  tm_basemap("OpenStreetMap") +
+  tm_layout(title = "Hospitals in Barcelona",
+            title.size = 1.5,
+            legend.outside = TRUE,
+            legend.outside.position = "bottom")
+```
+
+```{r}
+# 1. Instancias con type = beach
+bcn_playa <- all_points_combined_grouped %>%
+  filter(type == "beach") %>%
+  select(type, longitude, latitude)
+
+write.csv(bcn_playa, "bcn_playa.csv", row.names = FALSE)
+
+# 2. Instancias con type = metro_station o tram_stop
+bcn_metro <- all_points_combined_grouped %>%
+  filter(type %in% c("metro_station", "tram_stop")) %>%
+  select(type, longitude, latitude)
+
+write.csv(bcn_metro, "bcn_metro.csv", row.names = FALSE)
+
+# 3. Instancias con type = park
+bcn_parques <- all_points_combined_grouped %>%
+  filter(type == "park") %>%
+  select(type, longitude, latitude)
+
+write.csv(bcn_parques, "bcn_parques.csv", row.names = FALSE)
+
+# 4. Instancias con historic = heritage o tourism = museum, o tourism = attraction
+bcn_patrimonio <- all_points_combined_grouped %>%
+  filter(historic == "heritage" | tourism == "museum" | tourism == "attraction") %>%
+  select(type, longitude, latitude)
+
+write.csv(bcn_patrimonio, "bcn_atractivos.csv", row.names = FALSE)
+
+# 5. Instancias con amenity = bank
+bcn_bancos <- all_points_combined_grouped %>%
+  filter(amenity == "bank") %>%
+  select(amenity, longitude, latitude)
+
+write.csv(bcn_bancos, "bcn_bancos.csv", row.names = FALSE)
+
+# 6. Instancias con amenity = nightclub
+bcn_clubesnocturnos <- all_points_combined_grouped %>%
+  filter(amenity == "nightclub") %>%
+  select(amenity, longitude, latitude)
+
+write.csv(bcn_clubesnocturnos, "bcn_clubesnocturnos.csv", row.names = FALSE)
+
+# 7. Instancias con amenity = parking
+bcn_parking <- all_points_combined_grouped %>%
+  filter(amenity == "parking") %>%
+  select(amenity, longitude, latitude)
+
+write.csv(bcn_parking, "bcn_parking.csv", row.names = FALSE)
+
+# 8. Instancias con amenity = bicycle_parking
+bcn_parkingbici <- all_points_combined_grouped %>%
+  filter(amenity == "bicycle_parking") %>%
+  select(amenity, longitude, latitude)
+
+write.csv(bcn_parkingbici, "bcn_parkingbici.csv", row.names = FALSE)
+
+# 9. Instancias con name = Starbucks
+bcn_starbucks <- all_points_combined_grouped %>%
+  filter(name == "Starbucks") %>%
+  select(name, longitude, latitude)
+
+write.csv(bcn_starbucks, "bcn_starbucks.csv", row.names = FALSE)
+
+# 10. Instancias con name = Santagloria
+bcn_santagloria <- all_points_combined_grouped %>%
+  filter(name == "Santagloria") %>%
+  select(name, longitude, latitude)
+
+write.csv(bcn_santagloria, "bcn_santagloria.csv", row.names = FALSE)
+
+# 11. Instancias con name = Vivari
+bcn_vivari <- all_points_combined_grouped %>%
+  filter(name == "Vivari") %>%
+  select(name, longitude, latitude)
+
+write.csv(bcn_vivari, "bcn_vivari.csv", row.names = FALSE)
+
+# 12. Instancias con name = Buenas Migas
+bcn_buenasmigas <- all_points_combined_grouped %>%
+  filter(name == "Buenas Migas") %>%
+  select(name, longitude, latitude)
+
+write.csv(bcn_buenasmigas, "bcn_buenasmigas.csv", row.names = FALSE)
+
+# 13. Instancias con name = McDonald's
+bcn_mcdonalds <- all_points_combined_grouped %>%
+  filter(name == "McDonald's") %>%
+  select(name, longitude, latitude)
+
+write.csv(bcn_mcdonalds, "bcn_mcdonalds.csv", row.names = FALSE)
+```

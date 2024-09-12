@@ -1,0 +1,187 @@
+---
+title: "Datos del scrapping de Airbnb por Inside Airbnb"
+author: "Juan Carraha"
+date: "`r Sys.Date()`"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(readr)
+library(tidyverse)
+library(ggplot2)
+library(pander)
+library(purrr)
+```
+
+# Sobre el dataset
+
+Se trata de uno de los conjuntos de datos publicados por Inside Airbnb para Barcelona. En concreto se trata de *listings*, el que contiene el listado de propiedades dispuestas para el alquiler. La fecha de scrapping de estos datos corresponde al 20 de marzo de 2024. Son un total de 18.519 propiedades, para las cuales no hay valores perdidos ni en la categoría de tipo de propiedad ni el latitud y longitud. Por lo tanto, podemos mapear todas las propiedades y clasificarlas según tipología.
+
+Una consideración importante: se trata de datos de Barcelona. Hospitalet de Llobregat, Sant Adrià de Besòs, Badalona y los otros municipios colindantes no están incluidos.
+
+Los datos se pueden revisar acá: https://insideairbnb.com/barcelona/
+
+```{r}
+url <- "https://raw.githubusercontent.com/juancarraha/mbdds/main/listings.csv"
+data <- read.csv(url, sep = ",")
+```
+
+```{r}
+barrios <- data %>%
+  count(neighbourhood_group_cleansed, sort = TRUE) %>%  
+  mutate(percentage = round(n / sum(n) * 100, 2)) 
+pander(barrios)
+```
+# Variables del dataset
+
+El dataset original cuenta con 75 variables, para las cuales la mayoría tienen sus registros completos. En la siguiente tabla está el porcentaje de valores perdidos o vacíos en cada una.
+
+```{r}
+na_percentages <- data %>%
+  summarise_all(~ mean(is.na(.) | . == "") * 100) %>%
+  gather(key = "variable", value = "na_percentage") %>%
+  mutate(na_percentage = round(na_percentage, 2))
+pander(na_percentages)
+```
+# Tipos de propiedad
+
+Se registran varios tipos de propiedad. La web de Airbnb incluye guías y foros para discutir sobre la definición de cada uno de los tipos de propiedad, y sugerencias para la clasificación que hacen los hosts.
+
+```{r}
+property_type_counts <- data %>%
+  group_by(property_type) %>%
+  summarise(frequency = n()) %>%
+  arrange(desc(frequency))
+pander(property_type_counts)
+```
+# Clasificación de los tipos de propiedad
+
+Aquí he recodificado de manera general los tipos de propiedades en las tres tipologías generales que reconoce Airbnb. 
+
+**Alojamiento entero**
+
+*    Los huéspedes tendrán a su disposición el alojamiento entero, que cuenta con entrada privada y no tiene zonas comunes.
+*    Suele incluir un dormitorio, un cuarto de baño y una cocina.
+*    Sugieren al anfitrión asegurarse de indicar si vas a estar en la propiedad (por ejemplo: «El anfitrión vive en la primera planta»).
+
+**Habitación**
+
+*    Los huéspedes dormirán en una habitación privada con puerta.
+*    Otras zonas, como la cocina, el salón o el baño, podrían ser comunes.
+*    El baño puede ser compartido, privado en la habitación o estar fuera del dormitorio, pero ser de uso exclusivo para los viajeros. Se sugiere indicarlo en el apartado Detalles del anuncio.
+
+
+**Habitación compartida**
+
+*    Los huéspedes dormirán en una habitación o zona común donde tal vez haya más gente.
+*    Recomiendan que se indique el número de personas con las que podrían compartir el dormitorio. 
+
+La fuente puede ser revisada en el siguiente enlace: https://www.airbnb.es/help/article/317
+
+
+```{r}
+data <- data %>%
+  mutate(accommodation_type = case_when(
+    grepl("^Entire|^Whole|^Complete", property_type, ignore.case = TRUE) ~ "Entire place",
+    grepl("^Private room|^Room in|^Casa particular|^Yurt|^Barn|^Earthen home|^Hut", property_type, ignore.case = TRUE) ~ "Private room",
+    grepl("^Shared", property_type, ignore.case = TRUE) ~ "Shared room",
+    TRUE ~ "Other"  # En caso de que haya tipos no contemplados
+  ))
+```
+El resultado de la recodificación puede ser mejorado. Algunas consideraciones que poropongo son las siguientes:
+
+* Entire Guest Suite: la recodificaría como private room, ya que se utiliza para suites que, si bien están equipadas con casi todo lo que tiene un departamento, suelen estar dentro de la propiedad del host. 
+* Tiny home y casa particular: recodificar como entire place.
+* Yurt, Barn, Earthen home, Hut: estas creo que merecen más discusión. Creo que Earthen home y Hut pueden ser clasificadas como entire place, Yurt en muchos casos he visto que solo tiene camas, por lo que la clasificaría como private room. Barn no me queda del todo claro.
+* Other: estos casos vería si los eliminamos o reclasificamos en otras categorías, ya que son un número muy pequeño de datos.
+
+```{r}
+data$accommodation_type[data$property_type == "Entire guest suite"] <- "Private room"
+data$accommodation_type[data$property_type %in% c("Casa particular", "Earthen home", "Boat", "Camper/RV", "Tiny home")] <- "Entire place"
+```
+
+```{r}
+cross_tab <- data %>%
+  count(accommodation_type, property_type) %>%
+  arrange(accommodation_type, desc(n))
+pander(cross_tab)
+```
+
+# Porcentaje de propiedades por tipo
+
+Las propiedades son, en su mayoría, alojamientos enteros. De todas maneras, las habitaciones privadas representan cerca del 40% y las habitaciones compartidas un porcentaje muy minoritario. Las categorías por recodificar representan un número pequeño de propiedades, por lo que no deberían cambiar de manera importante esta distribución.
+
+Propongo evaluar si generamos otra variable que categorice entre servicios de alojamiento formales como hoteles y hostales, y el alojamiento en unidades de vivienda no diseñadas para la pernoctación de turistas o población flotante. Más que nada, para distinguir con equipamientos como los hoteles si decidimos incorporarlos a través de OpenStreetMaps.
+
+```{r}
+tipos <- data %>%
+  count(accommodation_type, sort = TRUE) %>%  
+  mutate(percentage = round(n / sum(n) * 100, 2)) 
+pander(tipos)
+```
+# Mínimo y máximo de noches de alquiler
+
+Otra variable interesante es la de noches mínimas y máximas. Las mímimas presentan datos elevadísimos en algunos casos, y creo que vale la pena considerar eliminar los outliers y ciertos valores muy altos. En el caso de las noches máximas los valores son elevados, pero eso tiene más sentido.
+
+```{r}
+ggplot(data, aes(x = minimum_nights)) +
+  geom_histogram(binwidth = 5, fill = "blue", color = "black", alpha = 0.7) +
+  labs(title = "Histograma de Minimum Nights", x = "Minimum Nights", y = "Frecuencia") +
+  theme_minimal()
+
+ggplot(data, aes(y = minimum_nights)) +
+  geom_boxplot(fill = "blue", color = "black", alpha = 0.7) +
+  facet_wrap(~ accommodation_type) +
+  labs(title = "Boxplot de Minimum Nights", y = "Minimum Nights") +
+  theme_minimal()
+
+# Calcular los límites de los outliers
+outlier_limits <- boxplot.stats(data$minimum_nights)$out
+cat("Los límites para considerar outliers son:", outlier_limits, "\n")
+```
+
+
+```{r}
+ggplot(data, aes(x = maximum_nights)) +
+  geom_histogram(binwidth = 5, fill = "blue", color = "black", alpha = 0.7) +
+  labs(title = "Histograma de Maximum Nights", x = "Maximum Nights", y = "Frecuencia") +
+  theme_minimal()
+
+ggplot(data, aes(y = maximum_nights)) +
+  geom_boxplot(fill = "blue", color = "black", alpha = 0.7) +
+  facet_wrap(~ accommodation_type) +
+  labs(title = "Boxplot de Maximum Nights", y = "Maximum Nights") +
+  theme_minimal()
+```
+
+# Información sobre anfitriones
+
+El dataset también incluye información sobre los hosts y si estos tienen más de un *listing*. Con esto se pueden ver casos en los que un edificio contenga varias unidades en alquiler en Airbnb, o si el host tiene muchas propiedades repartidas en la ciudad. Revisando un poco los host_id he detectado casos en los que se trata de emprendimientos o compañías dedicadas al alquiler vacacional. Esto podría ser de interés más adelante si ahondamos en temas de turistificación. De momento no me parece crucial trabajar las variables, pero sí saber que el dataset permite explorar estos puntos.
+
+# Dataset para el modelo
+
+Dejo fuera los alojamientos que tienen un número de noches mínimas de 80 o más, que son las que representan valores outliers.
+
+```{r}
+airbnb_data <- data[data$minimum_nights < 80, c("id", "price", "accommodation_type", "latitude", "longitude")]
+```
+
+## Transformar price
+
+El precio por noches está en dólares, por lo que se convertirá a euros al tipo de cambio correspondiente al día de extracción de la data.
+
+```{r}
+airbnb_data$price <- as.integer(sub("\\$", "", airbnb_data$price))
+```
+
+```{r}
+tipo_cambio = 0.9148 #Tipo de cambio USD a EUR el 20/03/2024
+airbnb_data$precio_euro <- airbnb_data$price * tipo_cambio
+```
+
+```{r}
+write.table(airbnb_data, "airbnb_data2.csv", sep = ";", row.names = FALSE, col.names = TRUE)
+```
